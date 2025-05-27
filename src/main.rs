@@ -419,7 +419,6 @@ fn handle_client(
                                     Err(e) => {
                                         stream.write_all(b"05error;14Database error")?;
                                         eprintln!("Failed to update password: {}", e);
-                                        // Optionally: stream.write_all(b"05error;25Failed to update password")?;
                                     }
                                 }
                             }
