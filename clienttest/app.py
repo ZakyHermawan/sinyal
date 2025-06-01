@@ -5,19 +5,19 @@ from PyQt5.QtWidgets import QDialog, QApplication, QWidget, QMessageBox, QInputD
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt # Import Qt for initial button state
 
-import bcrypt # type: ignore
+import bcrypt
 import socket
 import re
 
-HOST = "127.0.0.1"# server address
-PORT = 1234 # server port
-BUFF_SIZE = 4 * 1024 # receive buffer size
+HOST = "127.0.0.1"
+PORT = 1234
+BUFF_SIZE = 4 * 1024
 salt = b'$2b$12$x9ZnzLMloa9lnOwnZNmMn.'
 # data for testing
 # username: zakyhermawan
 # password: mypassword
 
-# Global variable to hold the single, persistent socket
+# Global variable to hold the socket
 global_socket = None
 
 class LoginScreen(QDialog):
@@ -278,7 +278,7 @@ class RegisterScreen(QDialog):
         username = self.Username.text()
         email = self.EmailRegister.text()
         password = self.Password.text()
-        confirm_password = self.Password_2.text() # Get the confirmed password
+        confirm_password = self.Password_2.text()
 
         if not username or not email or not password or not confirm_password:
             self.ErrorRegister.setText("All fields are required.")
@@ -334,7 +334,7 @@ class RegisterScreen(QDialog):
 
 
 class ForgotScreen(QDialog):
-    def __init__(self, email=""): # <--- MODIFIED LINE: Add email parameter
+    def __init__(self, email=""):
         super(ForgotScreen, self).__init__()
         loadUi("ResetPasswordMasukEmail.ui",self)
         self.sendOTP.clicked.connect(self.OTPFunction)
@@ -344,7 +344,7 @@ class ForgotScreen(QDialog):
         self.check_and_connect()
 
         self.ErrorEmailReset.setText("")
-        self.Email.setText(email) # <--- ADDED LINE: Set the email text
+        self.Email.setText(email)
 
         # Connect text changed signal to the validation function
         self.Email.textChanged.connect(self.check_fields)
@@ -424,7 +424,7 @@ class ForgotScreen(QDialog):
                 return
             
             # Pass the email to InputOTP screen
-            input_otp = InputOTP(email) # <--- MODIFIED LINE
+            input_otp = InputOTP(email)
             widget.addWidget(input_otp)
             widget.setCurrentIndex(widget.currentIndex() + 1)
             
@@ -506,7 +506,7 @@ class RegisterOTPScreen(QDialog):
             except Exception as e:
                 print(f"Error closing socket on navigating back: {e}")
             self.sock = None
-            global_socket = None # Crucial: Reset the global socket
+            global_socket = None
 
         # Pass the stored data back to the RegisterScreen
         regist = RegisterScreen(
@@ -579,9 +579,9 @@ class CreatedAccount(QDialog):
         widget.addWidget(login)
         widget.setCurrentIndex(widget.currentIndex()+1)
 
-## InputOTP Screen (for Password Reset)
+# InputOTP Screen (for Password Reset)
 class InputOTP(QDialog):
-    def __init__(self, email=""): # <--- MODIFIED LINE: Add email parameter with default
+    def __init__(self, email=""):
         super(InputOTP, self).__init__()
         loadUi("ResetPasswordMasukOTP.ui",self)
         self.editEmailReset.clicked.connect(self.gotoReset)
@@ -591,7 +591,7 @@ class InputOTP(QDialog):
         self.check_and_connect()
 
         self.ErrorResetOTP.setText("") 
-        self.stored_email = email # <--- ADDED LINE: Store the email
+        self.stored_email = email
         
         # Connect text changed signal to the validation function
         self.OTP.textChanged.connect(self.check_fields)
@@ -630,10 +630,10 @@ class InputOTP(QDialog):
             except Exception as e:
                 print(f"Error closing socket on navigating back from InputOTP: {e}")
             self.sock = None
-            global_socket = None # Crucial: Reset the global socket
+            global_socket = None
 
         # Navigate back to ForgotScreen, passing the stored email
-        reset = ForgotScreen(self.stored_email) # <--- MODIFIED LINE
+        reset = ForgotScreen(self.stored_email)
         widget.addWidget(reset)
         widget.setCurrentIndex(widget.currentIndex()+1)
 
@@ -641,7 +641,7 @@ class InputOTP(QDialog):
         # Clear previous error messages
         self.ErrorResetOTP.setText("")
 
-        otp = self.OTP.text() # Assuming your OTP input field is named 'OTP'
+        otp = self.OTP.text()
         if len(otp) != 4 or not otp.isdigit():
             self.ErrorResetOTP.setText("OTP must be 4 digits!")
             return
@@ -775,7 +775,7 @@ class ChangePass(QDialog):
             return
 
         newpassword = self.newPassword.text()
-        confirm_password = self.confirmNewPassword.text() # Get the confirmed password
+        confirm_password = self.confirmNewPassword.text()
 
         if newpassword != confirm_password:
             self.ErrorResetPassword.setText("Passwords do not match!")
@@ -805,9 +805,9 @@ class ChangePass(QDialog):
             if status == "success":
                 self.gotoResets()
             elif status == "error":
-                self.ErrorResetPassword.setText(reply) # Changed from ErrorRegistOTP to ErrorResetPassword
+                self.ErrorResetPassword.setText(reply)
             else:
-                self.ErrorResetPassword.setText(f"Unknown response from server: {status}: {reply}") # Changed from ErrorRegistOTP
+                self.ErrorResetPassword.setText(f"Unknown response from server: {status}: {reply}")
         except BrokenPipeError:
             QMessageBox.critical(self, "Connection Error", "Connection to server lost. Please restart the application.")
             if self.sock: self.sock.close()
@@ -842,7 +842,7 @@ def get_total_length(data):
     return total_length
 
 def parse_response(data):
-    decoded_data = data.decode(errors="replace") # Use errors="replace" for robustness
+    decoded_data = data.decode(errors="replace")
     if len(decoded_data) < 2:
         return ("error", "Response too short for status length")
 
