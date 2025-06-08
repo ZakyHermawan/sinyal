@@ -3,6 +3,8 @@ import os
 import xeddsa
 from cryptography.hazmat.primitives import serialization
 import json
+import pika
+import time
 
 from Crypto.Protocol.KDF import HKDF
 from Crypto.Hash import SHA256
@@ -13,43 +15,251 @@ from Crypto.Cipher import AES
 
 from collections import defaultdict, deque
 
+import base64
+import socket
+import os
+
+HOST = "127.0.0.1"   # server address
+PORT = 1234          # server port
+BUFF_SIZE = 1024 * 100
+
 AES_N_LEN = 16
 AES_TAG_LEN = 16
 EC_KEY_LEN = 32
 EC_SIGN_LEN = 64
 
-import base64
+def get_total_length(data):
+    first_digit = ord(data[0]) - ord('0')
+    assert(first_digit >=0 and first_digit <= 9)
+    second_digit = ord(data[1]) - ord('0')
+    assert(second_digit >=0 and second_digit <= 9)
+    total_length = first_digit * 10 + second_digit
+    return total_length
 
-def decodeB64Str(b64_str: str) -> bytes:
-    return base64.b64decode(b64_str)
+def get_total_length_5_digit(data):
+    first_digit = ord(data[0]) - ord('0')
+    assert(first_digit >=0 and first_digit <= 9)
+    second_digit = ord(data[1]) - ord('0')
+    assert(second_digit >=0 and second_digit <= 9)
+    third_digit = ord(data[2]) - ord('0')
+    assert(third_digit >=0 and third_digit <= 9)
+    fourth_digit = ord(data[3]) - ord('0')
+    assert(fourth_digit >=0 and fourth_digit <= 9)
+    fifth_digit = ord(data[4]) - ord('0')
+    assert(fifth_digit >=0 and fifth_digit <= 9)
+
+    total_length = first_digit * 10000 + second_digit * 1000 + third_digit * 100 + second_digit * 10 + first_digit
+    return total_length
+
+def parse_response(data):
+    decoded_data = data.decode()
+    lenStatus = get_total_length(decoded_data)
+    status = decoded_data[2:lenStatus + 2]
+    lenMessage = get_total_length(decoded_data[2+lenStatus + 1:])
+    message = decoded_data[2 + lenStatus + 1 + 2:]
+    return (status, message)
+
+def parse_response_key_bundle(data):
+    decoded_data = data.decode()
+    lenStatus = get_total_length(decoded_data)
+    status = decoded_data[2:lenStatus + 2]
+    lenMessage = get_total_length_5_digit(decoded_data[2+lenStatus + 1:])
+    message = decoded_data[2 + lenStatus + 1 + 5:]
+    return (status, message)
+
+def empty_socket_buffer(sock: socket.socket):
+    """
+    Reads from a socket until the receive buffer is empty.
+    Temporarily sets the socket to non-blocking mode.
+    """
+    print("[Helper] Attempting to empty socket buffer...")
+    try:
+        # 1. Set the socket to non-blocking mode
+        sock.setblocking(False)
+        
+        while True:
+            # 2. Try to receive data.
+            # If there's data, it will be received and discarded.
+            # If there's no data, it will raise a BlockingIOError.
+            data = sock.recv(4096)
+            if not data:
+                # The other side has closed the connection.
+                print("[Helper] Socket connection closed while emptying.")
+                break
+            print(f"[Helper] Discarded {len(data)} bytes of stale data.")
+
+    except BlockingIOError:
+        # This is the expected "error" when the buffer is empty.
+        # It means "would block" if the socket were in blocking mode.
+        print("[Helper] Buffer is now empty.")
+        pass # We're done.
+    
+    except Exception as e:
+        print(f"[Helper] An unexpected error occurred: {e}")
+
+    finally:
+        # 3. CRUCIAL: Always set the socket back to blocking mode
+        # for normal operation afterwards.
+        sock.setblocking(True)
 
 class Server:
     def __init__(self):
         self.key_bundles = {}
+        self.mq = deque()
         self.message_queues = defaultdict(deque)  # user ➜ deque of messages
 
     def set_key_bundle(self, username, key_bundle):
-        self.key_bundles[username] = key_bundle
-    
-    def get_key_bundle(self, username):
-        return self.key_bundles[username]
+        with socket.create_connection((HOST, PORT)) as sock:
+            # max length of the key bundle (in binary) should be under 99999 bytes
+            sock.send(f'18publish public key'.encode())
 
-    def send(self, to: str, message: bytes, sender: str = None):
+            # receive server response, but do nothing
+            data = sock.recv(BUFF_SIZE)
+            if not data:
+                print("Connection closed by server")
+                return
+
+            msg = f'{len(username):02}{username};{len(key_bundle):05}{key_bundle}'.encode()
+            sock.send(msg)
+
+            data = sock.recv(BUFF_SIZE)
+            if not data:
+                print("Connection closed by server")
+                return
+            
+            # print("received message:", data.decode(errors="replace"))
+            status, reply = parse_response(data)
+            # print(f"received msg: {status}: {reply}")
+            if status == "success":
+                # self.key_bundles[username] = key_bundle # TODO: delete this
+                print("Key bundle has been set to the server")
+            elif status == "error":
+                print(f"Key bundle failed to set to the server, reason: {reply}")
+            else:
+                print(f"Unknown response: {status}: {reply}")
+        
+
+    def get_key_bundle(self, username):
+        # just give the key bundle if it already there
+        if self.key_bundles.get(username):
+            return self.key_bundles[username]
+        
+        with socket.create_connection((HOST, PORT)) as sock:
+            sock.send(f'14get public key'.encode())
+
+            # receive server response, but do nothing
+            data = sock.recv(BUFF_SIZE)
+            if not data:
+                print("Connection closed by server")
+                return
+            
+            # print("Xcvxcvxv")
+            msg = f'{len(username):02}{username}'.encode()
+            sock.send(msg)
+            data = sock.recv(BUFF_SIZE)
+            if not data:
+                print("Connection closed by server")
+                return
+            
+            # print("received message:", data.decode(errors="replace"))
+            status, reply = parse_response_key_bundle(data)
+            # print(f"received msg: {status} {reply}")
+            if status == "success":
+                jsonString = reply
+                self.key_bundles[username] = self.parse_bytes_to_key_bundle(jsonString)
+                print("Successfully get key bundle from server")
+                return self.key_bundles[username]
+            elif status == "error":
+                print(f"Key bundle failed to set to the server, reason: {reply}")
+            else:
+                print(f"Unknown response: {status}: {reply}")
+
+
+    def parse_bytes_to_key_bundle(self, str_key_bundle):
+        received_data = json.loads(str_key_bundle)
+        convert_to_byte_IK_p = bytes.fromhex(received_data['IK_p'])
+        convert_to_byte_SPK_p = bytes.fromhex(received_data['SPK_p'])
+        convert_to_byte_SPK_sig = bytes.fromhex(received_data['SPK_sig'])
+        convert_to_byte_OPKs_p = []
+        for i in received_data['OPKs_p']:
+            convert_to_byte_OPKs_p.append(x25519.X25519PublicKey.from_public_bytes(bytes.fromhex(i)))
+        convert_to_byte_OPK_p = bytes.fromhex(received_data['OPK_p'])
+
+        received_pk = dict()
+        received_pk['IK_p'] = x25519.X25519PublicKey.from_public_bytes(convert_to_byte_IK_p)
+        received_pk['SPK_p'] = x25519.X25519PublicKey.from_public_bytes(convert_to_byte_SPK_p)
+        received_pk['SPK_sig'] = convert_to_byte_SPK_sig
+        received_pk['OPKs_p'] = convert_to_byte_OPKs_p
+        received_pk['OPK_p'] = x25519.X25519PublicKey.from_public_bytes(convert_to_byte_OPK_p)
+        return received_pk
+
+    def send(self, to: str, message: bytes):
         """
         Simulate sending a message to a user.
         Optionally track the sender.
         """
-        print(f"\n[Server] Delivering message to {to} from {sender}\n")
-        self.message_queues[to].append((sender, message))
+        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+        channel = connection.channel()
+        channel.queue_declare(queue=to)
+        channel.basic_publish(exchange='',
+                            routing_key=to,
+                            body=message)
+        connection.close()
 
     def recv(self, to: str):
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost'))
+        channel = connection.channel()
+        channel.queue_declare(queue=to)
+
+        def callback(ch, method, properties, body):
+            self.mq.append(body)
+            ch.stop_consuming()
+
+        channel.basic_consume(queue=to, on_message_callback=callback, auto_ack=True)
+
+        timeout = 1
+        print(f" [*] Waiting for a message on queue '{to}' for {timeout} second(s)...")
+
+        # --- This polling loop replaces start_consuming() ---
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            # process_data_events will wait for up to 0.1s for I/O.
+            # If a message arrives, it will trigger the callback.
+            connection.process_data_events(time_limit=0.1)
+
+            # If the callback added a message to our queue, we can stop waiting.
+            if self.mq:
+                print(" [*] Message received, exiting wait loop.")
+                break
+        
+        connection.close()
+        print(" [*] Connection closed.")
+
+        if self.mq:
+            return True # A message was received and is in the queue.
+        else:
+            print(" [*] No message received within the timeout period.")
+            return False # Timed out.
+    
+    def blocking_recv(self, to: str):
         """
-        Simulate receiving a message for a user.
-        Returns (sender, message) or (None, None) if empty.
+            blocking until a message is available
         """
-        if self.message_queues[to]:
-            return self.message_queues[to].popleft()
-        return None, None
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost'))
+        channel = connection.channel()
+        channel.queue_declare(queue=to)
+
+        def callback(ch, method, properties, body):
+            self.mq.append(body)
+            ch.stop_consuming()
+
+        channel.basic_consume(queue=to, on_message_callback=callback, auto_ack=True)
+        channel.start_consuming()
+
+    def pop_from_mq(self):
+        if len(self.mq) == 0:
+            return None
+        return self.mq.popleft()
 
 class User:
     def __init__(self, name, MAX_OPK_NUM):
@@ -103,13 +313,116 @@ class User:
             'OPKs_p': self.OPKs_p,
             'OPK_p': self.OPKs_p[0],  # Pick one OPK
         }
+    
+    def store_keys(self):
+        public_bundle = self.dump_pk_to_json()
+        private_bundle = self.dump_priv_to_json()
+
+        public_filename = f"{self.name}_public_keys.txt"
+        private_filename = f"{self.name}_private_keys.txt"
+
+        # --- Storing the Public Keys ---
+        print(f"Storing public key bundle to '{public_filename}'...")
+        # Use 'with open' to automatically handle closing the file
+        with open(public_filename, 'w') as f:
+            # print(public_bundle.decode())
+            f.write(public_bundle.decode())
+        print("...public keys saved.")
+
+        # --- Storing the Private Keys ---
+        print(f"Storing private key bundle to '{private_filename}'...")
+        with open(private_filename, 'w') as f:
+            f.write(private_bundle.decode())
+        print("...private keys saved.")
+
+    def load_keys(self):
+        """
+        Reads the JSON files and deserializes them back into Python dictionaries.
+        """
+        public_filename = f"{self.name}_public_keys.txt"
+        private_filename = f"{self.name}_private_keys.txt"
+        
+        public_data = None
+        private_data = None
+
+        print("\n--- 2. Loading key bundles from files ---")
+        
+        # --- Loading the Public Keys ---
+        try:
+            with open(public_filename, 'r') as f:
+                # json.load() reads from a file object, parses the JSON,
+                # and returns the corresponding Python object.
+                public_data = json.load(f)
+                public_key_bundle = self.parse_pubkey_dict_to_dict(public_data)
+                self.IK_p = public_key_bundle['IK_p']
+                self.SPK_p = public_key_bundle['SPK_p']
+                self.sig = public_key_bundle['SPK_sig']
+                self.OPKs_p = public_key_bundle['OPKs_p']
+                self.OPK_p = public_key_bundle['OPK_p']
+            print(f"Successfully loaded data from '{public_filename}'")
+        except FileNotFoundError:
+            print(f"ERROR: File '{public_filename}' not found.")
+        except json.JSONDecodeError:
+            print(f"ERROR: Could not decode JSON from '{public_filename}'.")
+
+        # --- Loading the Private Keys ---
+        try:
+            with open(private_filename, 'r') as f:
+                private_data = json.load(f)
+                private_key_bundle = self.parse_privkey_dict_to_dict(private_data)
+                self.IK_s = private_key_bundle['IK_s']
+                self.SPK_s = private_key_bundle['SPK_s']
+
+                self.OPKs = private_key_bundle['OPKs']
+                # print(f"lennn: {len(self.OPKs)}")
+                # print(f"di open: {self.OPKs}")
+            print(f"Successfully loaded data from '{private_filename}'")
+        except FileNotFoundError:
+            print(f"ERROR: File '{private_filename}' not found.")
+        except json.JSONDecodeError:
+            print(f"ERROR: Could not decode JSON from '{private_filename}'.")
+            
+        return public_data, private_data
+
+    def parse_pubkey_dict_to_dict(self, dict_key_bundle):
+        convert_to_byte_IK_p = bytes.fromhex(dict_key_bundle['IK_p'])
+        convert_to_byte_SPK_p = bytes.fromhex(dict_key_bundle['SPK_p'])
+        convert_to_byte_SPK_sig = bytes.fromhex(dict_key_bundle['SPK_sig'])
+        convert_to_byte_OPKs_p = []
+        for i in dict_key_bundle['OPKs_p']:
+            convert_to_byte_OPKs_p.append(x25519.X25519PublicKey.from_public_bytes(bytes.fromhex(i)))
+        convert_to_byte_OPK_p = bytes.fromhex(dict_key_bundle['OPK_p'])
+
+        received_pk = dict()
+        received_pk['IK_p'] = x25519.X25519PublicKey.from_public_bytes(convert_to_byte_IK_p)
+        received_pk['SPK_p'] = x25519.X25519PublicKey.from_public_bytes(convert_to_byte_SPK_p)
+        received_pk['SPK_sig'] = convert_to_byte_SPK_sig
+        received_pk['OPKs_p'] = convert_to_byte_OPKs_p
+        received_pk['OPK_p'] = x25519.X25519PublicKey.from_public_bytes(convert_to_byte_OPK_p)
+        return received_pk
+    
+    def parse_privkey_dict_to_dict(self, dict_key_bundle):
+        convert_to_byte_IK_s = bytes.fromhex(dict_key_bundle['IK_s'])
+        convert_to_byte_SPK_s = bytes.fromhex(dict_key_bundle['SPK_s'])
+        convert_to_byte_OPKs = []
+        for i in dict_key_bundle['OPKs']:
+            first_element = x25519.X25519PrivateKey.from_private_bytes(bytes.fromhex(i[0]))
+            second_element = x25519.X25519PublicKey.from_public_bytes(bytes.fromhex(i[1]))
+            convert_to_byte_OPKs.append((first_element, second_element))
+
+        received_pk = dict()
+        received_pk['IK_s'] = x25519.X25519PrivateKey.from_private_bytes(convert_to_byte_IK_s)
+        received_pk['SPK_s'] = x25519.X25519PrivateKey.from_private_bytes(convert_to_byte_SPK_s)
+        received_pk['OPKs'] = convert_to_byte_OPKs
+        return received_pk
 
     def get_key_bundle(self, server, user_name):
         if user_name in self.key_bundles and user_name in self.dr_keys:
             print('Already stored ' + user_name + ' locally, no need handshake again')
             return False
 
-        self.key_bundles[user_name] = server.get_key_bundle(user_name)
+        server.get_key_bundle(user_name)
+        self.key_bundles[user_name] = server.key_bundles[user_name]
         return True
 
     def initial_handshake(self, server, user_name):
@@ -144,6 +457,7 @@ class User:
         DH_4 = key_bundle['EK_s'].exchange(key_bundle['OPK_p'])
 
         # Final shared key (SK)
+        # here, we also modify self.key_bundles[user_name]['SK'] as a side effect, assignment to a dictionary is actually a reference
         key_bundle['SK'] = self.x3dh_KDF(DH_1 + DH_2 + DH_3 + DH_4)
         return key_bundle['SK']
 
@@ -161,8 +475,41 @@ class User:
             format=serialization.PublicFormat.Raw
         )
         return public_key
+    
+    def dump_pk_to_json(self):
+        pk = self.publish()
 
-    def build_x3dh_hello(self, server, to, ad):
+        published_dict = dict()
+        published_dict['IK_p'] = self.dump_publickey(pk['IK_p']).hex()
+        published_dict['SPK_p'] = self.dump_publickey(pk['SPK_p']).hex()
+        published_dict['SPK_sig'] = pk['SPK_sig'].hex()
+        published_dict['OPKs_p'] = []
+        for i in pk['OPKs_p']:
+            published_dict['OPKs_p'].append(self.dump_publickey(i).hex())
+        published_dict['OPK_p'] = self.dump_publickey(pk['OPK_p']).hex()
+        
+        return json.dumps(published_dict).encode('utf-8')
+    
+    def dump_priv_to_json(self):
+        print(f"self.IK_s: {self.IK_s}")
+        private = {
+            'IK_s': self.IK_s,
+            'SPK_s': self.SPK_s,
+            'OPKs': self.OPKs,
+        }
+
+        published_dict = dict()
+        published_dict['IK_s'] = self.dump_privatekey(private['IK_s']).hex()
+        published_dict['SPK_s'] = self.dump_privatekey(private['SPK_s']).hex()
+        published_dict['OPKs'] = []
+        for i in private['OPKs']:
+            # because OPKs is actually a tuple (priv, pub)
+            published_dict['OPKs'].append((self.dump_privatekey(i[0]).hex(), self.dump_publickey(i[1]).hex()))
+        
+        return json.dumps(published_dict).encode('utf-8')
+
+
+    def build_x3dh(self, server, to, ad):
         # Binary additional data
         b_ad = (json.dumps({
         'from': self.name,
@@ -195,7 +542,7 @@ class User:
 
         # initial message: (32 + 32 +32) + 16 + 16 + 64 + 32 + 32 + len(ad)
         message = key_comb + nonce + tag + ciphertext
-        server.send(to, message, sender=self.name)
+        server.send(to, message)
 
     def search_OPK_lst(self, opk_pub_bytes: bytes):
         """
@@ -214,28 +561,39 @@ class User:
                 return sk
         return None
 
-    def recv_x3dh_hello_message(self, server):
+    def recv_x3dh(self, server, is_blocking=False):
         # receive the hello message
-        sender, recv = server.recv(self.name)
-        self.get_key_bundle(server, sender)
+        if is_blocking == True:
+            server.blocking_recv(self.name)
+        else:
+            message_available = server.recv(self.name)
+            if message_available == False:
+                print("No incoming message!")
+                return None
+        message = server.pop_from_mq()
+        if message == None:
+            print("No new message!")
+            return None
+        # self.get_key_bundle(server, sender)
 
-        key_bundle = self.key_bundles[sender]
+        # key_bundle = self.key_bundles[sender]
 
-        IK_pa = recv[:EC_KEY_LEN]
-        EK_pa = recv[EC_KEY_LEN:EC_KEY_LEN*2]
-        OPK_pb = recv[EC_KEY_LEN*2:EC_KEY_LEN*3]
-        nonce = recv[EC_KEY_LEN*3:EC_KEY_LEN*3+AES_N_LEN]
-        tag = recv[EC_KEY_LEN*3+AES_N_LEN:EC_KEY_LEN*3+AES_N_LEN+AES_TAG_LEN]
-        ciphertext = recv[EC_KEY_LEN*3+AES_N_LEN+AES_TAG_LEN:]
+        IK_pa = message[:EC_KEY_LEN]
+        EK_pa = message[EC_KEY_LEN:EC_KEY_LEN*2]
+        OPK_pb = message[EC_KEY_LEN*2:EC_KEY_LEN*3]
+        nonce = message[EC_KEY_LEN*3:EC_KEY_LEN*3+AES_N_LEN]
+        tag = message[EC_KEY_LEN*3+AES_N_LEN:EC_KEY_LEN*3+AES_N_LEN+AES_TAG_LEN]
+        ciphertext = message[EC_KEY_LEN*3+AES_N_LEN+AES_TAG_LEN:]
 
         sk = self.generate_recv_secret_key(IK_pa, EK_pa, OPK_pb)
-        print(f'{self.name} sk: {sk}')
+        # print(f'{self.name} sk: {sk}')
 
         if sk is None:
+            print("keks")
             return
 
-        key_bundle['SK'] = sk
-        message = self.x3dh_decrypt_and_verify(key_bundle, IK_pa, EK_pa, nonce, tag, ciphertext)
+        # key_bundle['SK'] = sk
+        message = self.x3dh_decrypt_and_verify(sk, IK_pa, EK_pa, nonce, tag, ciphertext)
 
         # Get Ek_pa and plaintext ad
         return EK_pa, message
@@ -246,6 +604,7 @@ class User:
         # And remove the pair from the list
         OPK_sb = self.search_OPK_lst(OPK_pb)
         if OPK_sb is None:
+            print("no opk")
             return
 
         IK_pa = x25519.X25519PublicKey.from_public_bytes(IK_pa)
@@ -259,9 +618,10 @@ class User:
         # create SK
         return self.x3dh_KDF(DH_1 + DH_2 + DH_3 +DH_4)
 
-    def x3dh_decrypt_and_verify(self, key_bundle, IK_pa, EK_pa, nonce, tag, ciphertext):
+    def x3dh_decrypt_and_verify(self, sk, IK_pa, EK_pa, nonce, tag, ciphertext):
         # Decrypt
-        cipher = AES.new(key_bundle['SK'], AES.MODE_GCM, nonce=nonce, mac_len=AES_TAG_LEN)
+        cipher = AES.new(sk, AES.MODE_GCM, nonce=nonce, mac_len=AES_TAG_LEN)
+        p_all = None # initialize variable
         try:
             p_all = cipher.decrypt_and_verify(ciphertext, tag)
         except ValueError:
@@ -291,41 +651,90 @@ class User:
         print("Decryption and identity check passed!")
         print("Message:", json.loads(ad))
         return json.loads(ad)
+    
+    def receive_all_incoming_message(self, server):
+        while True:
+            incoming_message = self.recv_x3dh(server)
+            if incoming_message == None:
+                break
 
 if __name__ == '__main__':
     server = Server()
+
+    """
+    On application start: create server object (you can store it as global variable)
+    On registration:
+    1. Create User object
+    2. call object.store_keys() to store public and private key to file
+    3. convert public key to json with object.dump_pk_to_json
+    4. call server.set_key_bundle() to publish public key to server 
+    """
+
     alice = User("Alice", 1000) # generate private-public keys
     bob = User("Bob", 1000) # generate private-public keys
 
+    print("Storing generated key to file!")
+
+    # MAKE SURE ONLY DO STORE KEY ON REGISTRATION AND LOAD KEY ON LOGIN
+    # you can only load key once in a session (when user login, until user logout),
+    # if you do it more than once, the encrypt/decrypt wont work!
+
+    # do this after registration
+    alice.store_keys()
+    bob.store_keys()
+
+    # do this after login
+    alice.load_keys()
+    bob.load_keys()
+
     print("Alice and bob generate private-public keys!")
+    # both of these keys only for key verification
     public_keys1 = alice.publish()
     public_keys2 = bob.publish()
 
-    server.set_key_bundle(alice.name, public_keys1)
-    server.set_key_bundle(bob.name, public_keys2)
-    print("Alice and bob publish public keys to server!")
+    alice_pk_in_json = alice.dump_pk_to_json()
+    bob_pk_in_json = bob.dump_pk_to_json()
+
+    server.set_key_bundle('Alice', alice_pk_in_json)
+    server.set_key_bundle('Bob', bob_pk_in_json)
+
+    """
+    After login:
+    1. Create user object
+    2. get key bundle from every friendlist
+    3. load keys from file for the user using user.load_keys
+    4. receive all incoming message when user is offline
+    """
     
     alice.get_key_bundle(server, "Bob")
-    print("Alice receive Bob's public keys!")
     bob.get_key_bundle(server, "Alice")
-    print("Bob receive Alice's public keys!")
-    bob_key_bundles = alice.key_bundles["Bob"]
-    alice_key_bundles = bob.key_bundles["Alice"]
 
-    print("Is Alice receive correct Bob's public key ?", bob_key_bundles == public_keys2)
-    print("Is Bob receive correct Alice's public key ?", alice_key_bundles == public_keys1)
+    # receive all incoming message when user is offline
+    print("Alice is trying to receive all incoming message when she is offline!")
+    alice.receive_all_incoming_message(server)
+
+    print("Bob is trying to receive all incoming message when he is offline!")
+    bob.receive_all_incoming_message(server)
+
+    print()
+    print()
+
+    # verify the key
+    print("Is Alice receive correct Bob's public key ?", alice.key_bundles['Bob'] == public_keys2)
+    print("Is Bob receive correct Alice's public key ?", bob.key_bundles['Alice'] == public_keys1)
 
     while True:
         print()
         print()
-        print("Alice trying to send message to bob, initial handshake!")
+
         alice.initial_handshake(server, 'Bob')
-        alice_sk = alice.generate_send_secret_key('Bob')
+        alice.generate_send_secret_key('Bob')
+
         msg = input("Message to send to Bob: ")
-        alice.build_x3dh_hello(server, 'Bob', msg)
+        alice.build_x3dh(server, 'Bob', msg)
 
         print("Bob is trying to receive and decrypt Alice's message...")
-        result = bob.recv_x3dh_hello_message(server)
+        result = bob.recv_x3dh(server, is_blocking=True)
 
         if result is not None:
             ek_pa, ad = result
@@ -336,14 +745,15 @@ if __name__ == '__main__':
         print()
         print()
 
-        print("Bob is trying to send message to bob, initial handshake!")
+
         bob.initial_handshake(server, 'Alice')
-        bob.generate_send_secret_key('Alice')  # Add this line
+        bob.generate_send_secret_key('Alice')
 
         msg = input("Message to send to Alice: ")
-        bob.build_x3dh_hello(server, 'Alice', msg)
+        bob.build_x3dh(server, 'Alice', msg)
+        
         print("Bob is trying to receive and decrypt Alice's message...")
-        result = alice.recv_x3dh_hello_message(server)
+        result = alice.recv_x3dh(server, is_blocking=True)
         if result is not None:
             ek_pa, ad = result
             print("Alice successfully decrypted the message!")
