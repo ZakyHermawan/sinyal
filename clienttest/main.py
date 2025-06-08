@@ -705,7 +705,22 @@ def main() -> None:
                 print(f"salt: {salt}")
                 hashed = bcrypt.hashpw(password.encode(), salt)
                 msg = f"{username_length:02}".encode() + username.encode() + b";" + hashed
-
+                sock.sendall(msg)
+                data = sock.recv(BUFF_SIZE)
+                if not data:
+                    print("Connection closed by server")
+                    return
+                
+                print("received message:", data.decode(errors="replace"))
+                status, reply = parse_response(data)
+                if status == "error":
+                    print(f"Fail to login: {reply}")
+                    return
+                elif status == "success":
+                    print("Login Succes!")
+                else:
+                    print(f"Unknown status: {status}")
+                    return
                 user = User(username, 1000)
                 user.load_keys()
 
