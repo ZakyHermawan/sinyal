@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainChatWindow</class>
+ <widget class="QDialog" name="MainChatWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>950</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Secure Chat</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">/* ---- Global Styles ---- */
+QDialog#MainChatWindow {
+    background-color: rgb(54, 54, 54);
+}
+
+/* ---- Icon Bar (Far Left) ---- */
+QWidget#iconBar {
+    background-color: rgb(40, 40, 40);
+}
+
+QPushButton#logoutButton {
+    background-color: rgb(54, 54, 54);
+    border: none;
+    padding: 10px;
+    border-radius: 20px; /* Creates a circle for a 40x40 button */
+}
+
+QPushButton#logoutButton:hover {
+    background-color: rgb(220, 80, 80);
+}
+
+/* ---- List Panel (Friends List) ---- */
+QWidget#listPanel {
+    background-color: rgb(48, 48, 48);
+}
+
+QLabel#listPanelTitleLabel {
+    color: white;
+    font-size: 14pt;
+    font-weight: bold;
+    padding: 5px;
+}
+
+QListWidget#friendsListWidget {
+    border: none;
+    color: rgb(200, 200, 200);
+    font-size: 11pt;
+}
+
+QListWidget::item {
+    padding: 10px;
+}
+
+QListWidget::item:hover {
+    background-color: rgb(60, 60, 60);
+}
+
+QListWidget::item:selected {
+    background-color: rgb(144, 39, 144);
+    color: white;
+}
+
+/* Style for the addFriendButton (the '+') */
+QPushButton#addFriendButton {
+    background-color: rgb(144, 39, 144); /* Reverted to original purple */
+    color: white;
+    font-weight: bold;
+    font-size: 16pt; /* Adjusted font size for '+' */
+    border: none;
+    border-radius: 7px; /* Rounded rectangular shape */
+    padding: 0px; /* Ensure no extra padding, rely on min/max size */
+}
+
+QPushButton#addFriendButton:hover {
+    background-color: rgb(160, 50, 160); /* Slightly brighter purple on hover */
+}
+
+/* ---- Main Chat Area (Right) ---- */
+QLabel#chattingWithLabel {
+    color: white;
+    font-size: 12pt;
+    font-weight: bold;
+    padding: 5px;
+}
+
+QTextEdit#chatDisplay {
+    background-color: rgb(48, 48, 48);
+    border: 1px solid rgb(40, 40, 40);
+    border-radius: 8px;
+    color: rgb(220, 220, 220);
+    font-size: 11pt;
+    padding: 5px;
+}
+
+QLineEdit#messageLineEdit {
+    background-color: rgb(48, 48, 48);
+    border: 1px solid rgb(40, 40, 40);
+    border-radius: 7px;
+    padding: 10px;
+    color: rgb(220, 220, 220);
+    font-size: 11pt;
+}
+
+QPushButton#sendButton {
+    background-color: rgb(144, 39, 144);
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 7px;
+    padding: 10px 16px;
+}
+
+QPushButton#sendButton:hover {
+    background-color: rgb(160, 50, 160);
+}
+
+QPushButton#sendButton:disabled {
+    background-color: rgb(70, 70, 70);
+    color: rgb(120, 120, 120);
+}
+
+/* ---- Welcome Page Style ---- */
+QLabel#welcomeMessageLabel {
+    font-size: 18pt;
+    font-weight: bold;
+    color: rgb(150, 150, 150);
+}
+</string>
+  </property>
+  <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,0,1">
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <item>
+    <widget class="QWidget" name="iconBar" native="true">
+     <property name="minimumSize">
+      <size>
+       <width>60</width>
+       <height>0</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>60</width>
+       <height>16777215</height>
+      </size>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_3">
+      <item>
+       <spacer name="verticalSpacer">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>421</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="logoutButton">
+        <property name="minimumSize">
+         <size>
+          <width>40</width>
+          <height>40</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>40</width>
+          <height>40</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>Logout</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+        <property name="icon">
+         <iconset>
+          <normaloff>logout.png</normaloff>logout.png</iconset>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="listPanel" native="true">
+     <property name="minimumSize">
+      <size>
+       <width>250</width>
+       <height>0</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>250</width>
+       <height>16777215</height>
+      </size>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout" stretch="0,1,0">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>9</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="listPanelTitleLabel">
+        <property name="text">
+         <string>Sinyal</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QListWidget" name="friendsListWidget">
+        <property name="styleSheet">
+         <string notr="true">background-color:rgb(48, 48, 48);</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="addFriendButton">
+        <property name="enabled">
+         <bool>true</bool>
+        </property>
+        <property name="toolTip">
+         <string>Follow a New User</string>
+        </property>
+        <property name="text">
+         <string>+</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QStackedWidget" name="contentStackedWidget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="welcomePage">
+      <layout class="QVBoxLayout" name="verticalLayout_7">
+       <item>
+        <widget class="QLabel" name="welcomeMessageLabel">
+         <property name="text">
+          <string>Select a chat to get started</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="chatPage">
+      <layout class="QVBoxLayout" name="verticalLayout_2" stretch="0,1,0">
+       <item>
+        <widget class="QLabel" name="chattingWithLabel">
+         <property name="text">
+          <string>Select a chat to begin</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTextEdit" name="chatDisplay"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="1,0">
+         <item>
+          <widget class="QLineEdit" name="messageLineEdit">
+           <property name="placeholderText">
+            <string>Type a message...</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="sendButton">
+           <property name="text">
+            <string>Send</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
