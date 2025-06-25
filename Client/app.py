@@ -59,6 +59,8 @@ AES_TAG_LEN = 16
 EC_KEY_LEN = 32
 EC_SIGN_LEN = 64
 
+OPK_REPLENISH_THRESHOLD = 200 # Replenish when fewer than 200 OPKs remain
+
 class SignalEmitter(QObject):
     message_received = pyqtSignal(str, str, str) # sender, receiver, message
     follow_request_received = pyqtSignal(str, str, str) # sender, receiver, message
@@ -82,6 +84,22 @@ def message_receiver_thread(user_obj, server_obj, hf_module, lock, signal_emitte
                     print(f"[Receiver Thread] Friend list changed. Old: {last_known_friends}, New: {current_friends}")
                     last_known_friends = current_friends
                     signal_emitter.friend_list_updated.emit(current_friends)
+
+            if len(user_obj.OPKs_p) < OPK_REPLENISH_THRESHOLD: # Check if OPKs are running low
+                    print(f"[Receiver Thread] OPKs running low ({len(user_obj.OPKs_p)}). Replenishing...") #
+                    if user_obj.replenish_opks(): # Generate new OPKs
+                        try:
+                            # Re-establish a socket for key publishing
+                            # Using a new socket is generally safer for short-lived commands
+                            with socket.create_connection((HOST, PORT)) as replenishment_sock:
+                                new_user_pk_in_json = user_obj.dump_pk_to_json() # Get the updated public key bundle
+                                server_obj.set_key_bundle(replenishment_sock, user_obj.name, new_user_pk_in_json) # Publish to server
+                                user_obj.store_keys() # Save the newly generated private OPKs to disk
+                                print("[Receiver Thread] OPKs replenished and published successfully.") #
+                        except Exception as e:
+                            print(f"[Receiver Thread] Error publishing new OPKs: {e}") #
+                    else:
+                        print("[Receiver Thread] No OPKs needed for replenishment at this time.")
             
             following_list = last_known_friends if last_known_friends is not None else []
             
@@ -450,20 +468,42 @@ class User:
 
         self.SPK_sig = xeddsa.ed25519_priv_sign(ik_priv, spk_pub_bytes, self._spk_nonce)
 
+        self.MAX_OPK_NUM = MAX_OPK_NUM # Store max number of OPKs
+
         # One-Time PreKeys
         self.OPKs = []
         self.OPKs_p = []
-        for _ in range(MAX_OPK_NUM):
-            sk = x25519.X25519PrivateKey.generate()
-            pk = sk.public_key()
-            self.OPKs.append((sk, pk))
-            self.OPKs_p.append(pk)
+        self._generate_opks(MAX_OPK_NUM)
 
         # For sessions
         self.key_bundles = {}
         self.dr_keys = {}
         
         self.ik_to_username_map = {}
+
+    def _generate_opks(self, count):
+        for _ in range(count):
+            sk = x25519.X25519PrivateKey.generate()
+            pk = sk.public_key()
+            self.OPKs.append((sk, pk))
+            self.OPKs_p.append(pk)
+        print(f"Generated {count} OPKs. Current total: {len(self.OPKs_p)}") #
+
+    #  replenish OPKs when running low
+    def replenish_opks(self):
+        current_opk_count = len(self.OPKs_p)
+        needed_opks = self.MAX_OPK_NUM - current_opk_count
+
+        if needed_opks > 0:
+            print(f"Replenishing OPKs: Generating {needed_opks} new OPKs.") #
+            for _ in range(needed_opks):
+                sk = x25519.X25519PrivateKey.generate()
+                pk = sk.public_key()
+                self.OPKs.append((sk, pk))
+                self.OPKs_p.append(pk)
+            print(f"OPKs replenished. Total OPKs now: {len(self.OPKs_p)}") #
+            return True
+        return False
 
     def publish(self):
         return {
@@ -474,6 +514,20 @@ class User:
             'OPK_p': self.OPKs_p[0], # Pick one OPK
         }
     
+    def dump_pk_to_json(self):
+        pk = self.publish()
+
+        published_dict = dict()
+        published_dict['IK_p'] = self.dump_publickey(pk['IK_p']).hex()
+        published_dict['SPK_p'] = self.dump_publickey(pk['SPK_p']).hex()
+        published_dict['SPK_sig'] = pk['SPK_sig'].hex()
+
+        published_dict['OPKs_p'] = [self.dump_publickey(i).hex() for i in pk['OPKs_p']] 
+
+        published_dict['OPK_p'] = self.dump_publickey(pk['OPK_p']).hex()
+
+        return json.dumps(published_dict)
+
     def store_keys(self):
         public_bundle = self.dump_pk_to_json()
         private_bundle = self.dump_priv_to_json()
@@ -540,6 +594,20 @@ class User:
             return False
             
         return True
+    
+    def search_OPK_lst(self, opk_pub_bytes: bytes):
+        for i, (sk, pk) in enumerate(self.OPKs):
+            pk_bytes = pk.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw
+            )
+            if pk_bytes == opk_pub_bytes:
+                # When an OPK is consumed, remove it from both lists
+                self.OPKs.pop(i) 
+                self.OPKs_p.pop(i) 
+                print(f"OPK consumed. Remaining OPKs: {len(self.OPKs_p)}") #
+                return sk
+        return None
     
     def _serialize_key(self, key_obj):
         """Helper to safely convert a key object to a hex string."""
