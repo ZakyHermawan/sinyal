@@ -1,7 +1,7 @@
 Secure chat application
 
 Setup Server:
-  Edit Isi sammple.env dan save as .env
+  Edit Isi sample.env dan save as .env
   di directory setara src:
     cargo run
 
