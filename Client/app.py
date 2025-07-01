@@ -1,4 +1,5 @@
 import sys
+import os
 from PyQt5.uic import loadUi
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QDialog, QApplication, QWidget, QMessageBox, QInputDialog, QListWidgetItem
@@ -26,7 +27,6 @@ history_lock = threading.Lock()
 import time
 
 from cryptography.hazmat.primitives.asymmetric import x25519
-import os
 import xeddsa
 from cryptography.hazmat.primitives import serialization
 import json
@@ -60,6 +60,16 @@ EC_KEY_LEN = 32
 EC_SIGN_LEN = 64
 
 OPK_REPLENISH_THRESHOLD = 200 # Replenish when fewer than 200 OPKs remain
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temporary folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 class SignalEmitter(QObject):
     message_received = pyqtSignal(str, str, str) # sender, receiver, message
@@ -1259,7 +1269,7 @@ class MainChatWindow(QDialog):
 class LoginScreen(QDialog):
     def __init__(self):
         super(LoginScreen, self).__init__()
-        loadUi("Login.ui",self)
+        loadUi(resource_path("Login.ui"),self)
         self.Password.setEchoMode(QtWidgets.QLineEdit.Password)
         self.Login.clicked.connect(self.loginfunction)
         self.registerButton.clicked.connect(self.gotoregister)
@@ -1387,7 +1397,7 @@ class LoginScreen(QDialog):
 class ForgotScreen(QDialog):
     def __init__(self, email=""):
         super(ForgotScreen, self).__init__()
-        loadUi("ResetPasswordMasukEmail.ui",self)
+        loadUi(resource_path("ResetPasswordMasukEmail.ui"),self)
         self.sendOTP.clicked.connect(self.OTPFunction)
         self.goBack.clicked.connect(self.gotologin)
         
@@ -1481,7 +1491,7 @@ class ForgotScreen(QDialog):
 class RegisterScreen(QDialog):
     def __init__(self, username="", email="", password=""):
         super(RegisterScreen, self).__init__()
-        loadUi("Register.ui",self)
+        loadUi(resource_path("Register.ui"),self)
         self.sock = None
         self.check_and_connect()
         self.Password.setEchoMode(QtWidgets.QLineEdit.Password)
@@ -1604,7 +1614,7 @@ class RegisterScreen(QDialog):
 class RegisterOTPScreen(QDialog):
     def __init__(self, username="", email="", password=""):
         super(RegisterOTPScreen, self).__init__()
-        loadUi("RegisterOTP.ui",self)
+        loadUi(resource_path("RegisterOTP.ui"),self)
         self.editEmail.clicked.connect(self.gotoregist)
         self.SubmitRegisterOTP.clicked.connect(self.registerOTPfunction)
         self.stored_username = username
@@ -1705,7 +1715,7 @@ class RegisterOTPScreen(QDialog):
 class CreatedAccount(QDialog):
     def __init__(self):
         super(CreatedAccount, self).__init__()
-        loadUi("RegisterOTPSukses.ui",self)
+        loadUi(resource_path("RegisterOTPSukses.ui"),self)
         self.Login.clicked.connect(self.gotologin)
 
     def gotologin(self):
@@ -1717,7 +1727,7 @@ class CreatedAccount(QDialog):
 class InputOTP(QDialog):
     def __init__(self, email=""):
         super(InputOTP, self).__init__()
-        loadUi("ResetPasswordMasukOTP.ui",self)
+        loadUi(resource_path("ResetPasswordMasukOTP.ui"),self)
         self.editEmailReset.clicked.connect(self.gotoReset)
         self.Submit.clicked.connect(self.submitOTPFunction)
         self.sock = None
@@ -1804,7 +1814,7 @@ class InputOTP(QDialog):
 class ChangePass(QDialog):
     def __init__(self):
         super(ChangePass, self).__init__()
-        loadUi("ResetPasswordMasukPassword.ui",self)
+        loadUi(resource_path("ResetPasswordMasukPassword.ui"),self)
         self.newPassword.setEchoMode(QtWidgets.QLineEdit.Password)
         self.confirmNewPassword.setEchoMode(QtWidgets.QLineEdit.Password)
         self.ResetPassword.clicked.connect(self.submitPassFunction)
@@ -1898,7 +1908,7 @@ class ChangePass(QDialog):
 class Resets(QDialog):
     def __init__(self):
         super(Resets, self).__init__()
-        loadUi("ResetPasswordMasukPasswordSukses.ui",self)
+        loadUi(resource_path("ResetPasswordMasukPasswordSukses.ui"),self)
         self.Login.clicked.connect(self.gotologin)
 
     def gotologin(self):
