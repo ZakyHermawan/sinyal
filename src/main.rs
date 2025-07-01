@@ -449,8 +449,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let listener = TcpListener::bind("0.0.0.0:1234")?;
-    println!("Listening on 0.0.0.0:1234");
+    let listener = TcpListener::bind("127.0.0.1:1234")?;
+    println!("Listening on 127.0.0.1:1234");
 
     for stream in listener.incoming() {
         let db = Arc::clone(&db);
